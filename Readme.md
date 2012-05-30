@@ -89,7 +89,7 @@ var server = new hapi.Server.Server('localhost', 8088, {name:'sample', uri:'0.0.
 
 ### Utils
 
-hapi provides a myriad of util functions for your use
+hapi provides a myriad of util functions
 * `abort(message)` - logs message to console and exits the process.
 * `checkEmail(email)` - checks for a valid email address 
 * `clone(obj)` - clones an object or array
@@ -100,7 +100,7 @@ hapi provides a myriad of util functions for your use
 * `getRandomString(size)` - returns a random string of `size`
 * `hide(object, definition)` - removes hidden keys
 * `map(array, key)` - turns an array into an object
-* `merge(target, source) - Merge all the properties of source into target; source wins in conflict
+* `merge(target, source)` - Merge all the properties of source into target; source wins in conflict
 * `unique(array, key)` - removes duplicates from an array
 
 
