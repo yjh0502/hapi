@@ -5,7 +5,6 @@ A restful api server that separates your business logic from the server gears so
 ### Basic Usage
 
 ```js
-
 var hapi = require('hapi');
 
 //create a server with a host, port, and options
