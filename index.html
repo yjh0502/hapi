@@ -1,0 +1,81 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="chrome=1">
+    <title>hapi by walmartlabs</title>
+
+    <link rel="stylesheet" href="stylesheets/styles.css">
+    <link rel="stylesheet" href="stylesheets/pygment_trac.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+    <!--[if lt IE 9]>
+    <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+  </head>
+  <body>
+    <div class="wrapper">
+      <header>
+        <h1>hapi</h1>
+        <p>Node.js HTTP API Server framework</p>
+
+        <p class="view"><a href="https://github.com/walmartlabs/hapi">View the Project on GitHub <small>walmartlabs/hapi</small></a></p>
+
+
+        <ul>
+          <li><a href="https://github.com/walmartlabs/hapi/zipball/master">Download <strong>ZIP File</strong></a></li>
+          <li><a href="https://github.com/walmartlabs/hapi/tarball/master">Download <strong>TAR Ball</strong></a></li>
+          <li><a href="https://github.com/walmartlabs/hapi">View On <strong>GitHub</strong></a></li>
+        </ul>
+      </header>
+      <section>
+        <p><img src="https://raw.github.com/walmartlabs/hapi/master/images/hapi.png"></p>
+
+<p>A rich framework for building restful API services. <strong>hapi</strong> is a configuration-centric framework in which
+authentication requirements, input validation, data caching and pre-fetching, developer documentation,
+and other essential facilities are provided out-of-the-box and enabled using simple JSON configuration
+objects. <strong>hapi</strong> enables developers to focus on writing reusable business logic instead of spending time
+with everything else.</p>
+
+<p><a href="http://travis-ci.org/walmartlabs/hapi"><img src="https://secure.travis-ci.org/walmartlabs/hapi.png" alt="Build Status"></a></p>
+
+<h1>Usage</h1>
+
+<h2>Basic Usage</h2>
+
+<p>The following is a simple "hello world" service with a single API endpoint:</p>
+
+<div class="highlight"><pre><span class="kd">var</span> <span class="nx">Hapi</span> <span class="o">=</span> <span class="nx">require</span><span class="p">(</span><span class="s1">'hapi'</span><span class="p">);</span>
+
+<span class="c1">// Create a server with a host, port, and options</span>
+<span class="kd">var</span> <span class="nx">server</span> <span class="o">=</span> <span class="k">new</span> <span class="nx">Hapi</span><span class="p">.</span><span class="nx">Server</span><span class="p">(</span><span class="s1">'localhost'</span><span class="p">,</span> <span class="mi">8000</span><span class="p">);</span>
+
+<span class="c1">// Define the route</span>
+<span class="kd">var</span> <span class="nx">hello</span> <span class="o">=</span> <span class="p">{</span>
+<span class="nx">handler</span><span class="o">:</span> <span class="kd">function</span> <span class="p">(</span><span class="nx">request</span><span class="p">)</span> <span class="p">{</span>
+
+        <span class="nx">request</span><span class="p">.</span><span class="nx">reply</span><span class="p">({</span> <span class="nx">greeting</span><span class="o">:</span> <span class="s1">'hello world'</span> <span class="p">});</span>
+    <span class="p">}</span>
+<span class="p">};</span>
+
+<span class="c1">// Add the route</span>
+<span class="nx">server</span><span class="p">.</span><span class="nx">addRoute</span><span class="p">({</span>
+    <span class="nx">method</span> <span class="o">:</span> <span class="s1">'GET'</span><span class="p">,</span>
+    <span class="nx">path</span> <span class="o">:</span> <span class="s1">'/hello'</span><span class="p">,</span>
+    <span class="nx">config</span> <span class="o">:</span> <span class="nx">hello</span>
+<span class="p">});</span>
+
+<span class="c1">// Start the server</span>
+<span class="nx">server</span><span class="p">.</span><span class="nx">start</span><span class="p">();</span>
+</pre></div>
+
+<p>Now navigate to http://localhost:8080/hello and you should receive 'hello world'.</p>
+      </section>
+      <footer>
+        <p>This project is maintained by <a href="https://github.com/walmartlabs">walmartlabs</a></p>
+        <p><small>Hosted on GitHub Pages &mdash; Theme by <a href="https://github.com/orderedlist">orderedlist</a></small></p>
+      </footer>
+    </div>
+    <script src="javascripts/scale.fix.js"></script>
+    
+  </body>
+</html>
