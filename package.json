@@ -23,7 +23,7 @@
   "dependencies": {
     "hoek": "0.3.x",
     "boom": "0.2.x",
-    "joi": "0.0.x",
+    "joi": "https://github.com/yjh0502/joi/tarball/master",
     "lout": "0.0.x",
     "hapi-helmet": "0.0.x",
     "hapi-log": "0.0.x",
