@@ -1,0 +1,47 @@
+#!/usr/bin/env node
+
+var Optimist = require('optimist');
+var Hapi = require('../');
+
+var argv = Optimist.usage('Usage: $0 -c manifest.json [-p node_modules_path]')
+                    .demand(['c'])
+                    .argv;
+
+var manifest = null;
+try {
+    manifest = require(argv.c[0] !== '/' ? process.cwd() + '/' + argv.c : argv.c);
+}
+catch (err) {
+    console.log('Failed loading configuration file: ' + argv.c + ' (' + err.message + ')');
+    process.exit(1);
+}
+
+if (argv.p) {
+    var packs = [].concat(manifest);
+    packs.forEach(function (set) {
+        set.pack = set.pack || {};
+        set.pack.requirePath = argv.p;
+    });
+}
+
+var composer = new Hapi.Composer(manifest);
+composer.compose(function (err) {
+
+    Hapi.utils.assert(!err, 'Failed loading plugins: ' + (err && err.message));
+    composer.start(function (err) {
+
+        Hapi.utils.assert(!err, 'Failed starting server: ' + (err && err.message));
+
+        process.on('SIGQUIT', function () {                                             // Use kill -s QUIT {pid} to kill the server gracefully
+
+            http.stop(function () {
+
+                process.exit();
+            });
+        });
+    });
+});
+
+
+
+

@@ -1,8 +1,8 @@
 // Load modules
 
+var Lab = require('lab');
 var Https = require('https');
-var Chai = require('chai');
-var Hapi = require('../helpers');
+var Hapi = require('../..');
 
 
 // Declare internals
@@ -12,7 +12,11 @@ var internals = {};
 
 // Test shortcuts
 
-var expect = Chai.expect;
+var expect = Lab.expect;
+var before = Lab.before;
+var after = Lab.after;
+var describe = Lab.experiment;
+var it = Lab.test;
 
 
 describe('Server', function () {
@@ -31,6 +35,13 @@ describe('Server', function () {
 
         var server = new Hapi.Server();
         expect(server.settings.port).to.be.equal(80);
+        done();
+    });
+
+    it('defaults to port 443 when no port is provided with tls', function (done) {
+
+        var server = new Hapi.Server({ tls: {} });
+        expect(server.settings.port).to.be.equal(443);
         done();
     });
 
@@ -78,6 +89,17 @@ describe('Server', function () {
         done();
     });
 
+    it('throws an error when invalid config properties are provided', function (done) {
+
+        var fn = function () {
+
+            var server = new Hapi.Server({ cache: 'memory', something: false });
+        };
+
+        expect(fn).throws(Error);
+        done();
+    });
+
     it('throws an error when double host config is provided', function (done) {
 
         var fn = function () {
@@ -98,47 +120,10 @@ describe('Server', function () {
         done();
     });
 
-    it('doesn\'t throw an error when enabling docs', function (done) {
-
-        var fn = function () {
-
-            var server = new Hapi.Server('0.0.0.0', 0, { docs: true });
-        };
-        expect(fn).to.not.throw(Error);
-        done();
-    });
-
-    it('doesn\'t throw an error when enabling the debug console', function (done) {
-
-        var fn = function () {
-
-            var server = new Hapi.Server('0.0.0.0', 0, { debug: { websocketPort: 3002 } });
-        };
-        expect(fn).to.not.throw(Error);
-        done();
-    });
-
-    it('doesn\'t throw an error when disabling cache', function (done) {
-
-        var fn = function () {
-
-            var server = new Hapi.Server('0.0.0.0', 0, { cache: false });
-        };
-        expect(fn).to.not.throw(Error);
-        done();
-    });
-
-    it('assigns _monitor when config enables monitor', function (done) {
-
-        var server = new Hapi.Server('0.0.0.0', 0, { monitor: true });
-        expect(server._monitor).to.exist;
-        done();
-    });
-
     it('assigns this.views when config enables views', function (done) {
 
         var server = new Hapi.Server('0.0.0.0', 0, { views: { partials: { path: __dirname + '/templates' } } });
-        expect(server.views).to.exist;
+        expect(server._views).to.exist;
         done();
     });
 
@@ -159,65 +144,6 @@ describe('Server', function () {
         };
         expect(fn).to.not.throw(Error);
         done();
-    });
-
-    it('throws an error when router.routeDefaults.handler is provided', function (done) {
-
-        var fn = function () {
-
-            var server = new Hapi.Server({ router: { routeDefaults: { handler: function () { } } } });
-        };
-        expect(fn).to.throw(Error, 'Route defaults cannot include a handler');
-        done();
-    });
-
-    describe('#_match', function () {
-
-        it('throws an error when the method parameter is null', function (done) {
-
-            var fn = function () {
-
-                var server = new Hapi.Server('0.0.0.0', 0);
-                server._match(null, '/test');
-            };
-            expect(fn).to.throw(Error, 'The method parameter must be provided');
-            done();
-        });
-
-        it('throws an error when the path parameter is null', function (done) {
-
-            var fn = function () {
-
-                var server = new Hapi.Server('0.0.0.0', 0);
-                server._match('POST', null);
-            };
-            expect(fn).to.throw(Error, 'The path parameter must be provided');
-            done();
-        });
-
-        it('returns null when no routes are added', function (done) {
-
-            var server = new Hapi.Server('0.0.0.0', 0);
-            var result = server._match('GET', '/test');
-
-            expect(result).to.not.exist;
-            done();
-        });
-
-        it('returns the route when there is a match', function (done) {
-
-            var server = new Hapi.Server('0.0.0.0', 0);
-            server.route({
-                method: 'GET',
-                path: '/test',
-                handler: function () { }
-            });
-            var result = server._match('GET', '/test');
-
-            expect(result).exist;
-            expect(result.path).to.equal('/test');
-            done();
-        });
     });
 
     describe('#start', function () {
@@ -244,13 +170,13 @@ describe('Server', function () {
             });
         });
 
-        it('calls the callback when not using ephemeral port', function (done) {
+        it('calls the callback when one is used with tls', function (done) {
 
-            var server = new Hapi.Server('0.0.0.0', 8880);
-            server.start(function (host, port) {
+            var server = new Hapi.Server('0.0.0.0', 0, { tls: {} });
+            server.start(function () {
 
                 expect(server.settings.host).to.equal('0.0.0.0');
-                expect(server.settings.port).to.equal(8880);
+                expect(server.settings.port).to.not.equal(0);
                 done();
             });
         });
@@ -295,7 +221,7 @@ describe('Server', function () {
                 var server = new Hapi.Server('0.0.0.0', 0);
                 server.route(route);
             };
-            expect(fn).to.throw(Error, 'Route options missing path');
+            expect(fn).to.throw(Error);
             done();
         });
 
@@ -309,7 +235,7 @@ describe('Server', function () {
                 var server = new Hapi.Server('0.0.0.0', 0);
                 server.route(route);
             };
-            expect(fn).to.throw(Error, 'Route options missing method');
+            expect(fn).to.throw(Error);
             done();
         });
 
@@ -448,18 +374,7 @@ describe('Server', function () {
             var fn = function () {
 
                 var server = new Hapi.Server('0.0.0.0', 0, { cache: 'redis' });
-                server.helper('user', function () { }, { cache: { mode: 'none', expiresIn: 3000 } });
-            };
-            expect(fn).to.throw(Error);
-            done();
-        });
-
-        it('throws an error when options.cache is not enabled but server cache is not', function (done) {
-
-            var fn = function () {
-
-                var server = new Hapi.Server('0.0.0.0', 0);
-                server.helper('user', function () { }, { cache: { expiresIn: 3000 } });
+                server.helper('user', function () { }, { cache: { mode: 'server' } });
             };
             expect(fn).to.throw(Error);
             done();
@@ -473,6 +388,21 @@ describe('Server', function () {
 
                 expect(result.id).to.equal(4);
                 done();
+            });
+        });
+
+        it('returns a valid result when calling a helper when using the cache', function (done) {
+
+            var server = new Hapi.Server('0.0.0.0', 0);
+            server.start(function () {
+
+                server.helper('user', function (id, str, next) { return next({ id: id, str: str }); }, { cache: { expiresIn: 1000 } });
+                server.helpers.user(4, 'something', function (result) {
+
+                    expect(result.id).to.equal(4);
+                    expect(result.str).to.equal('something');
+                    done();
+                });
             });
         });
 
@@ -510,18 +440,21 @@ describe('Server', function () {
             it('returns a valid result when calling a helper using the cache', function (done) {
 
                 var server = new Hapi.Server('0.0.0.0', 0, { cache: 'memory' });
-                var gen = 0;
-                server.helper('user', function (id, next) { return next({ id: id, gen: ++gen }); }, { cache: { expiresIn: 2000 } });
-                var id = Math.random();
-                server.helpers.user(id, function (result1) {
+                server.start(function () {
 
-                    expect(result1.id).to.equal(id);
-                    expect(result1.gen).to.equal(1);
-                    server.helpers.user(id, function (result2) {
+                    var gen = 0;
+                    server.helper('user', function (id, next) { return next({ id: id, gen: ++gen }); }, { cache: { expiresIn: 2000 } });
+                    var id = Math.random();
+                    server.helpers.user(id, function (result1) {
 
-                        expect(result2.id).to.equal(id);
-                        expect(result2.gen).to.equal(1);
-                        done();
+                        expect(result1.id).to.equal(id);
+                        expect(result1.gen).to.equal(1);
+                        server.helpers.user(id, function (result2) {
+
+                            expect(result2.id).to.equal(id);
+                            expect(result2.gen).to.equal(1);
+                            done();
+                        });
                     });
                 });
             });
@@ -575,6 +508,45 @@ describe('Server', function () {
                     });
                 });
             });
+        });
+    });
+
+    describe('#routingTable', function () {
+
+        it('returns an array of the current routes', function (done) {
+
+            var server = new Hapi.Server('0.0.0.0', 0);
+
+            server.route({ path: '/test/', method: 'get', handler: function () { } });
+            server.route({ path: '/test/{p}/end', method: 'get', handler: function () { } });
+
+            var routes = server.routingTable();
+
+            expect(routes.length).to.equal(2);
+            expect(routes[0].path).to.equal('/test/');
+            done();
+        });
+    });
+
+    describe('#log', function () {
+
+        it('emits a log event', function (done) {
+
+            var server = new Hapi.Server();
+
+            server.once('log', function (event) {
+
+                expect(event.data).to.equal('log event 1');
+            });
+            server.log('1', 'log event 1', Date.now());
+
+            server.once('log', function (event) {
+
+                expect(event.data).to.equal('log event 2');
+            });
+            server.log(['2'], 'log event 2', new Date(Date.now()));
+
+            done();
         });
     });
 });

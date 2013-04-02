@@ -1,10 +1,10 @@
 // Load modules
 
-var Chai = require('chai');
+var Lab = require('lab');
 var Http = require('http');
-var NodeUtil = require('util');
 var Stream = require('stream');
-var Hapi = require('../helpers');
+var Request = require('request');
+var Hapi = require('../..');
 
 
 // Declare internals
@@ -14,7 +14,11 @@ var internals = {};
 
 // Test shortcuts
 
-var expect = Chai.expect;
+var expect = Lab.expect;
+var before = Lab.before;
+var after = Lab.after;
+var describe = Lab.experiment;
+var it = Lab.test;
 
 
 describe('Server Timeout', function () {
@@ -88,7 +92,7 @@ describe('Server Timeout', function () {
         request.reply.stream(s).send();
     };
 
-    var _server = new Hapi.Server('127.0.0.1', 0, { timeout: { server: 50 }, cache: { engine: 'memory' } });
+    var _server = new Hapi.Server('127.0.0.1', 0, { timeout: { server: 50 } });
     _server.route([
         { method: 'GET', path: '/timeout', config: { handler: timeoutHandler } },
         { method: 'GET', path: '/timeoutcache', config: { handler: cachedTimeoutHandler } },
@@ -133,15 +137,11 @@ describe('Server Timeout', function () {
 
     it('returns server error message when server timeout is short and already occurs when request executes', function (done) {
 
-        _shortTimeoutServer._debugConsole = {
-            report: function () {
-
-                var timer = new Hapi.utils.Timer();
-                while (timer.elapsed() < 3) {
-
-                }
-            }
-        };
+        _shortTimeoutServer.ext('onRequest', function (request, next) {
+            var timer = new Hapi.utils.Timer();
+            while (timer.elapsed() < 3);
+            next();
+        });
 
         _shortTimeoutServer.inject({ method: 'GET', url: '/timeout' }, function (res) {
 
@@ -174,7 +174,7 @@ describe('Server Timeout', function () {
 
         var req = Http.request(options, function (res) {
 
-            expect(timer.elapsed()).to.be.at.least(100);
+            expect(timer.elapsed()).to.be.at.least(91);
             expect(res.statusCode).to.equal(200);
             done();
         });
@@ -243,7 +243,7 @@ describe('Server and Client timeouts', function () {
         }, 70);
     };
 
-    var _server = new Hapi.Server('127.0.0.1', 0, { timeout: { server: 50, client: 50 }, cache: { engine: 'memory' } });
+    var _server = new Hapi.Server('127.0.0.1', 0, { timeout: { server: 50, client: 50 } });
     _server.route([
         { method: 'POST', path: '/timeout', config: { handler: timeoutHandler } },
         { method: 'POST', path: '/timeoutcache', config: { handler: cachedTimeoutHandler } }
@@ -264,7 +264,6 @@ describe('Server and Client timeouts', function () {
             method: 'POST'
         };
 
-
         var req = Http.request(options, function (res) {
 
             expect([503, 408]).to.contain(res.statusCode);
@@ -272,8 +271,12 @@ describe('Server and Client timeouts', function () {
             done();
         });
 
+        req.on('error', function (err) {
+
+        });
+
         req.write('\n');
-        setTimeout(function() {
+        setTimeout(function () {
 
             req.end();
         }, 100);
@@ -300,13 +303,57 @@ describe('Server and Client timeouts', function () {
                 done();
             });
 
+            req2.on('error', function (err) {
+
+            });
+
             req2.end();
         });
 
+        req1.on('error', function (err) {
+
+        });
+
         req1.write('\n');
-        setTimeout(function() {
+        setTimeout(function () {
 
             req1.end();
         }, 100);
+    });
+});
+
+describe('Socket timeout', function () {
+
+    var server = new Hapi.Server('0.0.0.0', 0, { timeout: { client: 45, socket: 50 } });
+    server.route({
+        method: 'GET', path: '/', config: {
+            handler: function (request) {
+
+                setTimeout(function () {
+
+                    request.reply('too late');
+                }, 70);
+            }
+        }
+    });
+
+    var port = 0;
+    before(function (done) {
+
+        server.start(function () {
+
+            port = server.settings.port;
+            done();
+        });
+    });
+
+    it('closes connection on socket timeout', function (done) {
+
+        Request('http://localhost:' + port + '/', function (err, response, body) {
+
+            expect(err).to.exist;
+            expect(err.message).to.equal('socket hang up');
+            done();
+        });
     });
 });

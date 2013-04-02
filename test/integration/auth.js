@@ -1,10 +1,11 @@
 // Load modules
 
 var Crypto = require('crypto');
-var Chai = require('chai');
+var Lab = require('lab');
 var Oz = require('oz');
 var Hawk = require('hawk');
-var Hapi = require('../helpers');
+var Stream = require('stream');
+var Hapi = require('../..');
 
 
 // Declare internals
@@ -14,7 +15,12 @@ var internals = {};
 
 // Test shortcuts
 
-var expect = Chai.expect;
+var expect = Lab.expect;
+var before = Lab.before;
+var after = Lab.after;
+var describe = Lab.experiment;
+var it = Lab.test;
+var itx = function () { };
 
 
 describe('Auth', function () {
@@ -38,19 +44,19 @@ describe('Auth', function () {
 
             if (id === 'john') {
                 return callback(null, {
-                    id: 'john',
-                    password: hashPassword('12345'),
+                    user: 'john',
                     scope: [],
-                    ext: {
-                        tos: 100
-                    }
-                });
+                    tos: 100
+                }, hashPassword('12345'));
             }
             else if (id === 'jane') {
                 return callback(Hapi.error.internal('boom'));
             }
-            else if (id === 'invalid') {
-                return callback(null, {});
+            else if (id === 'invalid1') {
+                return callback(null, 'bad');
+            }
+            else if (id === 'invalid2') {
+                return callback(null, {}, null);
             }
             else {
                 return callback(null, null);
@@ -61,11 +67,12 @@ describe('Auth', function () {
             auth: {
                 scheme: 'basic',
                 loadUserFunc: loadUser,
-                hashPasswordFunc: hashPassword
+                hashPasswordFunc: hashPassword,
+                defaultMode: 'required'
             }
         };
 
-        var server = new Hapi.Server('0.0.0.0', 0, config);
+        var server = new Hapi.Server(config);
 
         var basicHandler = function (request) {
 
@@ -74,7 +81,7 @@ describe('Auth', function () {
 
         var doubleHandler = function (request) {
 
-            var options = { method: 'POST', url: '/basic', headers: { authorization: basicHeader('john', '12345') }, session: request.session };
+            var options = { method: 'POST', url: '/basic', headers: { authorization: basicHeader('john', '12345') }, credentials: request.auth.credentials };
 
             server.inject(options, function (res) {
 
@@ -83,7 +90,7 @@ describe('Auth', function () {
         };
 
         server.route([
-            { method: 'POST', path: '/basic', handler: basicHandler },
+            { method: 'POST', path: '/basic', handler: basicHandler, config: { auth: true } },
             { method: 'POST', path: '/basicOptional', handler: basicHandler, config: { auth: { mode: 'optional' } } },
             { method: 'POST', path: '/basicScope', handler: basicHandler, config: { auth: { scope: 'x' } } },
             { method: 'POST', path: '/basicTos', handler: basicHandler, config: { auth: { tos: 200 } } },
@@ -198,9 +205,21 @@ describe('Auth', function () {
             });
         });
 
-        it('returns an error on invalid user lookup error', function (done) {
+        it('returns an error on non-object credentials error', function (done) {
 
-            var request = { method: 'POST', url: '/basic', headers: { authorization: basicHeader('invalid', '12345') } };
+            var request = { method: 'POST', url: '/basic', headers: { authorization: basicHeader('invalid1', '12345') } };
+
+            server.inject(request, function (res) {
+
+                expect(res.result).to.exist;
+                expect(res.result.code).to.equal(500);
+                done();
+            });
+        });
+
+        it('returns an error on missing password error', function (done) {
+
+            var request = { method: 'POST', url: '/basic', headers: { authorization: basicHeader('invalid2', '12345') } };
 
             server.inject(request, function (res) {
 
@@ -234,10 +253,10 @@ describe('Auth', function () {
             });
         });
 
-        it('should not ask for credentials if no server auth configured', function (done) {
+        itx('should not ask for credentials if no server auth configured', function (done) {
 
             var config = {};
-            var server = new Hapi.Server('0.0.0.0', 8080, config);
+            var server = new Hapi.Server(config);
             server.route({
                 path: '/noauth',
                 method: 'GET',
@@ -258,7 +277,7 @@ describe('Auth', function () {
             });
         });
 
-        it('should ask for credentials if server has one default strategy', function (done) {
+        itx('should ask for credentials if server has one default strategy', function (done) {
 
             var config = {
                 auth: {
@@ -267,11 +286,12 @@ describe('Auth', function () {
                     hashPasswordFunc: hashPassword
                 }
             };
-            var server = new Hapi.Server('0.0.0.0', 8080, config);
+            var server = new Hapi.Server(config);
             server.route({
                 path: '/noauth',
                 method: 'GET',
                 config: {
+                    auth: 'default',
                     handler: function (req) {
 
                         req.reply('Success');
@@ -295,7 +315,7 @@ describe('Auth', function () {
             });
         });
 
-        it('should throw if server has strategies route refers to nonexistent strategy', function (done) {
+        itx('should throw if server has strategies route refers to nonexistent strategy', function (done) {
 
             var config = {
                 auth: {
@@ -309,7 +329,7 @@ describe('Auth', function () {
                     }
                 }
             };
-            var server = new Hapi.Server('0.0.0.0', 0, config);
+            var server = new Hapi.Server(config);
 
             var fn = function () {
 
@@ -329,6 +349,39 @@ describe('Auth', function () {
             };
 
             expect(fn).to.throw();
+            done();
+        });
+
+        it('cannot add a route that has payload validation required', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/basicPayload', handler: basicHandler, config: { auth: { mode: 'required', payload: 'required' }, payload: 'raw' } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('cannot add a route that has payload validation as optional', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/basicPayload', handler: basicHandler, config: { auth: { mode: 'required', payload: 'optional' }, payload: 'raw' } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('can add a route that has payload validation as none', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/basicPayload', handler: basicHandler, config: { auth: { mode: 'required', payload: false }, payload: 'raw' } });
+            };
+
+            expect(fn).to.not.throw(Error);
             done();
         });
     });
@@ -368,7 +421,7 @@ describe('Auth', function () {
             }
         };
 
-        var server = new Hapi.Server('example.com', 8080, config);
+        var server = new Hapi.Server(config);
 
         var ozHandler = function (request) {
 
@@ -376,7 +429,7 @@ describe('Auth', function () {
         };
 
         server.route([
-            { method: 'POST', path: '/oz', handler: ozHandler },
+            { method: 'POST', path: '/oz', handler: ozHandler, config: { auth: 'default' } },
             { method: 'POST', path: '/ozOptional', handler: ozHandler, config: { auth: { mode: 'optional' } } },
             { method: 'POST', path: '/ozScope', handler: ozHandler, config: { auth: { scope: 'x' } } },
             { method: 'POST', path: '/ozTos', handler: ozHandler, config: { auth: { tos: 200 } } }
@@ -429,8 +482,8 @@ describe('Auth', function () {
 
             server.inject(request, function (res) {
 
-                expect(res.result).to.exist;
-                var envelope = JSON.parse(res.readPayload());
+                expect(res.payload).to.exist;
+                var envelope = JSON.parse(res.payload);
                 expect(envelope.app).to.equal('123');
                 done();
             });
@@ -438,7 +491,7 @@ describe('Auth', function () {
 
         it('returns a reply on failed optional auth', function (done) {
 
-            var request = { method: 'POST', url: '/ozOptional' };
+            var request = { method: 'POST', url: '/ozOptional', headers: { host: 'example.com:8080' } };
 
             server.inject(request, function (res) {
 
@@ -477,6 +530,39 @@ describe('Auth', function () {
                 });
             });
         });
+
+        it('cannot add a route that has payload validation required', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/ozPayload', handler: ozHandler, config: { auth: { mode: 'required', payload: 'required' }, payload: 'raw' } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('cannot add a route that has payload validation as optional', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/ozPayload', handler: ozHandler, config: { auth: { mode: 'required', payload: 'optional' }, payload: 'raw' } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('can add a route that has payload validation as none', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/ozPayload', handler: ozHandler, config: { auth: { mode: 'required', payload: false }, payload: 'raw' } });
+            };
+
+            expect(fn).to.not.throw(Error);
+            done();
+        });
     });
 
     describe('Hawk', function () {
@@ -491,6 +577,13 @@ describe('Auth', function () {
             },
             'jane': {
                 err: Hapi.error.internal('boom')
+            },
+            'joan': {
+                cred: {
+                    id: 'joan',
+                    key: 'werxhqb98rpaxn39848xrunpaw3489ruxnpa98w4rxn',
+                    algorithm: 'sha256'
+                }
             }
         };
 
@@ -507,7 +600,7 @@ describe('Auth', function () {
         var hawkHeader = function (id, path) {
 
             if (credentials[id] && credentials[id].cred) {
-                return Hawk.getAuthorizationHeader(credentials[id].cred, 'POST', path, '0.0.0.0', 8080);
+                return Hawk.client.header('http://0.0.0.0:8080' + path, 'POST', { credentials: credentials[id].cred }).field;
             }
             else {
                 return '';
@@ -521,18 +614,57 @@ describe('Auth', function () {
             }
         };
 
-        var server = new Hapi.Server('0.0.0.0', 8080, config);
+        var server = new Hapi.Server(config);
 
         var hawkHandler = function (request) {
 
-            request.reply('Success');
+            request.reply.payload('Success').send();
+        };
+
+        var hawkChangeHandler = function (request) {
+
+            request.auth.credentials.algorithm = 'ha';
+            request.reply.payload('Success').send();
+        };
+
+        var hawkErrorHandler = function (request) {
+
+            request.reply.payload(new Error()).send();
+        };
+
+        var hawkStreamHandler = function (request) {
+
+            var stream = new Stream();
+            stream.readable = true;
+            stream.resume = function () {
+
+                setTimeout(function () {
+
+                    stream.emit('data', 'hi');
+                }, 2);
+
+                setTimeout(function () {
+
+                    stream.emit('end', '');
+                }, 5);
+            };
+
+            request.reply.stream(stream).send();
         };
 
         server.route([
-            { method: 'POST', path: '/hawk', handler: hawkHandler },
+            { method: 'POST', path: '/hawk', handler: hawkHandler, config: { auth: 'default' } },
+            { method: 'POST', path: '/hawkValidate', handler: hawkHandler, config: { auth: 'default', validate: { query: { } } } },
+            { method: 'POST', path: '/hawkchange', handler: hawkChangeHandler, config: { auth: 'default' } },
+            { method: 'POST', path: '/hawkError', handler: hawkErrorHandler, config: { auth: 'default' } },
+            { method: 'POST', path: '/hawkStream', handler: hawkStreamHandler, config: { auth: 'default' } },
             { method: 'POST', path: '/hawkOptional', handler: hawkHandler, config: { auth: { mode: 'optional' } } },
             { method: 'POST', path: '/hawkScope', handler: hawkHandler, config: { auth: { scope: 'x' } } },
-            { method: 'POST', path: '/hawkTos', handler: hawkHandler, config: { auth: { tos: 200 } } }
+            { method: 'POST', path: '/hawkTos', handler: hawkHandler, config: { auth: { tos: 200 } } },
+            { method: 'POST', path: '/hawkPayload', handler: hawkHandler, config: { auth: { mode: 'required', payload: 'required' }, payload: 'raw' } },
+            { method: 'POST', path: '/hawkPayloadOptional', handler: hawkHandler, config: { auth: { mode: 'required', payload: 'optional' }, payload: 'raw' } },
+            { method: 'POST', path: '/hawkPayloadNone', handler: hawkHandler, config: { auth: { mode: 'required', payload: false }, payload: 'raw' } },
+            { method: 'POST', path: '/hawkOptionalPayload', handler: hawkHandler, config: { auth: { mode: 'optional', payload: 'required' }, payload: 'raw' } }
         ]);
 
         it('returns a reply on successful auth', function (done) {
@@ -541,7 +673,7 @@ describe('Auth', function () {
 
             server.inject(request, function (res) {
 
-                expect(res.result).to.exist;
+                expect(res.statusCode).to.equal(200);
                 expect(res.result).to.equal('Success');
                 done();
             });
@@ -549,12 +681,149 @@ describe('Auth', function () {
 
         it('returns a reply on failed optional auth', function (done) {
 
-            var request = { method: 'POST', url: '/hawkOptional' };
+            var request = { method: 'POST', url: '/hawkOptional', headers: { host: 'example.com:8080' } };
 
             server.inject(request, function (res) {
 
-                expect(res.result).to.exist;
                 expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('includes authorization header in response when the response is a stream', function (done) {
+
+            var request = { method: 'POST', url: '/hawkStream', headers: { authorization: hawkHeader('john', '/hawkStream'), host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.raw.res._trailer).to.contain('Hawk');
+
+                var attributes = Hawk.utils.parseAuthorizationHeader(res.raw.req.headers.authorization);
+
+                var artifacts = {
+                    method: res.raw.req.method,
+                    host: res.raw.req.headers.host.split(':')[0],
+                    port: res.raw.req.headers.host.split(':')[1],
+                    resource: res.raw.req.url,
+                    ts: attributes.ts,
+                    nonce: attributes.nonce,
+                    ext: attributes.ext,
+                    mac: attributes.mac
+                };
+
+                var options = {
+                    payload: res.payload
+                };
+
+                getCredentials('john', function (err, cred) {
+
+                    var header = Hawk.server.header(cred, artifacts, options);
+                    var trailerAuth = res.raw.res._trailer.split(':')[1];
+                    trailerAuth = trailerAuth.substr(1, trailerAuth.lastIndexOf('"'));
+
+                    expect(res.headers.trailer).to.contain('Server-Authorization');
+                    expect(header).to.equal(trailerAuth);
+                    done();
+                });
+            });
+        });
+
+        it('includes valid authorization header in response when the response is text', function (done) {
+
+            var request = { method: 'POST', url: '/hawk', headers: { authorization: hawkHeader('john', '/hawk'), host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.headers['server-authorization']).to.contain('Hawk');
+                expect(res.statusCode).to.equal(200);
+
+                var attributes = Hawk.utils.parseAuthorizationHeader(res.raw.req.headers.authorization);
+
+                var artifacts = {
+                    method: res.raw.req.method,
+                    host: res.raw.req.headers.host.split(':')[0],
+                    port: res.raw.req.headers.host.split(':')[1],
+                    resource: res.raw.req.url,
+                    ts: attributes.ts,
+                    nonce: attributes.nonce,
+                    ext: attributes.ext,
+                    mac: attributes.mac
+                };
+
+                var options = {
+                    payload: res.payload,
+                    contentType: res.headers['content-type']
+                };
+
+                getCredentials('john', function (err, cred) {
+
+                    var header = Hawk.server.header(cred, artifacts, options);
+                    expect(header).to.equal(res.headers['server-authorization']);
+
+                    done();
+                });
+            });
+        });
+
+        it('includes valid authorization header in response when the request fails validation', function (done) {
+
+            var request = { method: 'POST', url: '/hawkValidate?a=1', headers: { authorization: hawkHeader('john', '/hawkValidate?a=1'), host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.headers['server-authorization']).to.exist;
+                expect(res.headers['server-authorization']).to.contain('Hawk');
+                expect(res.statusCode).to.equal(400);
+
+                var attributes = Hawk.utils.parseAuthorizationHeader(res.raw.req.headers.authorization);
+
+                var artifacts = {
+                    method: res.raw.req.method,
+                    host: res.raw.req.headers.host.split(':')[0],
+                    port: res.raw.req.headers.host.split(':')[1],
+                    resource: res.raw.req.url,
+                    ts: attributes.ts,
+                    nonce: attributes.nonce,
+                    ext: attributes.ext,
+                    mac: attributes.mac
+                };
+
+                var options = {
+                    payload: res.payload,
+                    contentType: res.headers['content-type']
+                };
+
+                getCredentials('john', function (err, cred) {
+
+                    artifacts.credentials = cred;
+                    var header = Hawk.server.header(cred, artifacts, options);
+                    expect(header).to.equal(res.headers['server-authorization']);
+
+                    done();
+                });
+            });
+        });
+
+        it('returns an error when the hawk auth response header can\'t be created', function (done) {
+
+            var request = { method: 'POST', url: '/hawkchange', headers: { authorization: hawkHeader('joan', '/hawkchange'), host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(500);
+                done();
+            });
+        });
+
+        it('doesn\'t include authorization header in response when the response is an error', function (done) {
+
+            var request = { method: 'POST', url: '/hawkError', headers: { authorization: hawkHeader('john', '/hawkError'), host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(500);
+                expect(res.headers.authorization).to.not.exist;
                 done();
             });
         });
@@ -601,7 +870,6 @@ describe('Auth', function () {
 
             server.inject(request, function (res) {
 
-                expect(res.result).to.exist;
                 expect(res.result.code).to.equal(403);
                 done();
             });
@@ -613,7 +881,6 @@ describe('Auth', function () {
 
             server.inject(request, function (res) {
 
-                expect(res.result).to.exist;
                 expect(res.result.code).to.equal(403);
                 done();
             });
@@ -631,8 +898,66 @@ describe('Auth', function () {
                 }
             };
 
-            var server = new Hapi.Server('0.0.0.0', 8080, config);
-            server.route({ method: 'POST', path: '/hawk', handler: hawkHandler });
+            var server = new Hapi.Server(config);
+            server.route({ method: 'POST', path: '/hawk', handler: hawkHandler, config: { auth: 'default' } });
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns a reply on successful auth and payload validation', function (done) {
+
+            var payload = 'application text formatted payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayload', 'POST', { credentials: credentials.john.cred, payload: payload, contentType: 'application/text' });
+            var request = { method: 'POST', url: '/hawkPayload', headers: { authorization: authHeader.field, host: '0.0.0.0:8080', 'content-type': 'application/text' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns an error with payload validation when the payload is tampered with', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayload', 'POST', { credentials: credentials.john.cred, payload: payload });
+            payload += 'HACKED';
+            var request = { method: 'POST', url: '/hawkPayload', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(401);
+                expect(res.result.message).to.equal('Payload is invalid');
+                done();
+            });
+        });
+
+        it('returns an error with payload validation when the payload is tampered with and the route has optional validation', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayloadOptional', 'POST', { credentials: credentials.john.cred, payload: payload });
+            payload += 'HACKED';
+            var request = { method: 'POST', url: '/hawkPayloadOptional', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(401);
+                expect(res.result.message).to.equal('Payload is invalid');
+                done();
+            });
+        });
+
+        it('returns a reply on successful auth and payload validation when validation is optional', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayloadOptional', 'POST', { credentials: credentials.john.cred, payload: payload });
+            var request = { method: 'POST', url: '/hawkPayloadOptional', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
 
             server.inject(request, function (res) {
 
@@ -640,6 +965,263 @@ describe('Auth', function () {
                 expect(res.result).to.equal('Success');
                 done();
             });
+        });
+
+        it('returns a reply on successful auth when payload validation is optional and no payload hash exists', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayloadOptional', 'POST', { credentials: credentials.john.cred });
+            var request = { method: 'POST', url: '/hawkPayloadOptional', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.result).to.exist;
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns a reply on successful auth and when payload validation is disabled', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayloadNone', 'POST', { credentials: credentials.john.cred, payload: payload });
+            var request = { method: 'POST', url: '/hawkPayloadNone', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns a reply on successful auth when the payload is tampered with and the route has disabled validation', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkPayloadNone', 'POST', { credentials: credentials.john.cred, payload: payload });
+            payload += 'HACKED';
+            var request = { method: 'POST', url: '/hawkPayloadNone', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns a reply on successful auth when auth is optional and when payload validation is required', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkOptionalPayload', 'POST', { credentials: credentials.john.cred, payload: payload });
+            var request = { method: 'POST', url: '/hawkOptionalPayload', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns an error with payload validation when the payload is tampered with and the route has optional auth', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/hawkOptionalPayload', 'POST', { credentials: credentials.john.cred, payload: payload });
+            payload += 'HACKED';
+            var request = { method: 'POST', url: '/hawkOptionalPayload', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(401);
+                expect(res.result.message).to.equal('Payload is invalid');
+                done();
+            });
+        });
+    });
+
+    describe('Bewit', function () {
+
+        var credentials = {
+            'john': {
+                cred: {
+                    id: 'john',
+                    key: 'werxhqb98rpaxn39848xrunpaw3489ruxnpa98w4rxn',
+                    algorithm: 'sha256'
+                }
+            },
+            'jane': {
+                err: Hapi.error.internal('boom')
+            }
+        };
+
+        var getCredentials = function (id, callback) {
+
+            if (credentials[id]) {
+                return callback(credentials[id].err, credentials[id].cred);
+            }
+            else {
+                return callback(null, null);
+            }
+        };
+
+        var getBewit = function (id, path) {
+
+            if (credentials[id] && credentials[id].cred) {
+                return Hawk.uri.getBewit('http://0.0.0.0:8080' + path, { credentials: credentials[id].cred, ttlSec: 60 });
+            }
+            else {
+                return '';
+            }
+        };
+
+        var config = {
+            auth: {
+                scheme: 'bewit',
+                getCredentialsFunc: getCredentials
+            }
+        };
+
+        var server = new Hapi.Server(config);
+
+        var bewitHandler = function (request) {
+
+            request.reply('Success');
+        };
+
+        server.route([
+            { method: 'GET', path: '/bewit', handler: bewitHandler, config: { auth: 'default' } },
+            { method: 'GET', path: '/bewitOptional', handler: bewitHandler, config: { auth: { mode: 'optional' } } },
+            { method: 'GET', path: '/bewitScope', handler: bewitHandler, config: { auth: { scope: 'x' } } },
+            { method: 'GET', path: '/bewitTos', handler: bewitHandler, config: { auth: { tos: 200 } } }
+        ]);
+
+        it('returns a reply on successful auth', function (done) {
+
+            var bewit = getBewit('john', '/bewit');
+            var request = { method: 'GET', url: '/bewit?bewit=' + bewit, headers: { host: '0.0.0.0:8080' }};
+
+            server.inject(request, function (res) {
+
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('returns an error reply on failed optional auth', function (done) {
+
+            var bewit = getBewit('john', '/abc');
+            var request = { method: 'GET', url: '/bewitOptional?bewit=' + bewit, headers: { host: 'example.com:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.result.code).to.equal(401);
+                done();
+            });
+        });
+
+        it('returns an error on bad bewit', function (done) {
+
+            var bewit = getBewit('john', '/abc');
+            var request = { method: 'GET', url: '/bewit?bewit=' + bewit, headers: { host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.result.code).to.equal(401);
+                done();
+            });
+        });
+
+        it('returns an error on bad bewit format', function (done) {
+
+            var request = { method: 'GET', url: '/bewit?bewit=junk', headers: { host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.result.code).to.equal(400);
+                done();
+            });
+        });
+
+        it('returns an error on insufficient tos', function (done) {
+
+            var bewit = getBewit('john', '/bewitTos');
+            var request = { method: 'GET', url: '/bewitTos?bewit=' + bewit, headers: { host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.result.code).to.equal(403);
+                done();
+            });
+        });
+
+        it('returns an error on insufficient scope', function (done) {
+
+            var bewit = getBewit('john', '/bewitScope');
+            var request = { method: 'GET', url: '/bewitScope?bewit=' + bewit, headers: { host: '0.0.0.0:8080' } };
+
+            server.inject(request, function (res) {
+
+                expect(res.result.code).to.equal(403);
+                done();
+            });
+        });
+
+        it('returns a reply on successful auth when using a custom host header key', function (done) {
+
+            var bewit = getBewit('john', '/bewit');
+            var request = { method: 'GET', url: '/bewit?bewit=' + bewit, headers: { custom: '0.0.0.0:8080' } };
+
+            var config = {
+                auth: {
+                    scheme: 'bewit',
+                    getCredentialsFunc: getCredentials,
+                    hostHeaderName: 'custom'
+                }
+            };
+
+            var server = new Hapi.Server(config);
+            server.route({ method: 'GET', path: '/bewit', handler: bewitHandler, config: { auth: 'default' } });
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+
+        it('cannot add a route that has payload validation required', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/bewitPayload', handler: bewitHandler, config: { auth: { mode: 'required', payload: 'required' }, payload: 'raw' } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('cannot add a route that has payload validation as optional', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/bewitPayload', handler: bewitHandler, config: { auth: { mode: 'required', payload: 'optional' }, payload: 'raw' } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('can add a route that has payload validation as none', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/bewitPayload', handler: bewitHandler, config: { auth: { mode: 'required', payload: false }, payload: 'raw' } });
+            };
+
+            expect(fn).to.not.throw(Error);
+            done();
         });
     });
 
@@ -649,7 +1231,6 @@ describe('Auth', function () {
 
             var config = {
                 auth: {
-                    scheme: 'ext:any',
                     implementation: {
 
                         authenticate: function (request, callback) {
@@ -665,8 +1246,8 @@ describe('Auth', function () {
                 request.reply('Success');
             };
 
-            var server = new Hapi.Server('0.0.0.0', 8080, config);
-            server.route({ method: 'POST', path: '/ext', handler: handler });
+            var server = new Hapi.Server(config);
+            server.route({ method: 'POST', path: '/ext', handler: handler, config: { auth: 'default' } });
 
             var request = { method: 'POST', url: '/ext' };
             server.inject(request, function (res) {
@@ -707,13 +1288,10 @@ describe('Auth', function () {
 
             if (id === 'john') {
                 return callback(null, {
-                    id: 'john',
-                    password: '12345',
+                    user: 'john',
                     scope: [],
-                    ext: {
-                        tos: 100
-                    }
-                });
+                    tos: 100
+                }, '12345');
             }
             else if (id === 'jane') {
                 return callback(Hapi.error.internal('boom'));
@@ -729,7 +1307,7 @@ describe('Auth', function () {
         var hawkHeader = function (id, path) {
 
             if (credentials[id] && credentials[id].cred) {
-                return Hawk.getAuthorizationHeader(credentials[id].cred, 'POST', path, '0.0.0.0', 8080);
+                return Hawk.client.header('http://0.0.0.0:8080' + path, 'POST', { credentials: credentials[id].cred }).field;
             }
             else {
                 return '';
@@ -753,7 +1331,7 @@ describe('Auth', function () {
             }
         };
 
-        var server = new Hapi.Server('0.0.0.0', 8080, config);
+        var server = new Hapi.Server(config);
 
         var handler = function (request) {
 
@@ -764,7 +1342,8 @@ describe('Auth', function () {
             { method: 'POST', path: '/multiple', handler: handler, config: { auth: { strategies: ['basic', 'hawk'] } } },
             { method: 'POST', path: '/multipleOptional', handler: handler, config: { auth: { mode: 'optional' } } },
             { method: 'POST', path: '/multipleScope', handler: handler, config: { auth: { scope: 'x' } } },
-            { method: 'POST', path: '/multipleTos', handler: handler, config: { auth: { tos: 200 } } }
+            { method: 'POST', path: '/multipleTos', handler: handler, config: { auth: { tos: 200 } } },
+            { method: 'POST', path: '/multiplePayload', handler: handler, config: { auth: { strategies: ['basic', 'hawk'], payload: 'optional' }, payload: 'raw' } }
         ]);
 
         it('returns a reply on successful auth of first auth strategy', function (done) {
@@ -817,8 +1396,8 @@ describe('Auth', function () {
 
             server.inject(request, function (res) {
 
-                expect(res.headers['WWW-Authenticate']).to.contain('Hawk');
-                expect(res.headers['WWW-Authenticate']).to.contain('Basic');
+                expect(res.headers['www-authenticate']).to.contain('Hawk');
+                expect(res.headers['www-authenticate']).to.contain('Basic');
                 done();
             });
         });
@@ -854,6 +1433,283 @@ describe('Auth', function () {
                 expect(res.result.code).to.equal(401);
                 expect(res.result.message).to.equal('Bad mac');
                 done();
+            });
+        });
+
+        it('cannot add a route that has payload validation required when one of the server strategies doesn\'t support it', function (done) {
+
+            var fn = function () {
+
+                server.route({ method: 'POST', path: '/multiplePayload', handler: handler, config: { auth: { strategies: ['basic', 'hawk'], payload: 'required' } } });
+            };
+
+            expect(fn).to.throw(Error);
+            done();
+        });
+
+        it('returns an error with payload validation when the payload is tampered with and the route has optional auth', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/multiplePayload', 'POST', { credentials: credentials.john.cred, payload: payload });
+            payload += 'HACKED';
+            var request = { method: 'POST', url: '/multiplePayload', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(401);
+                expect(res.result.message).to.equal('Payload is invalid');
+                done();
+            });
+        });
+
+        it('returns a successful reply with payload validation as optional when the payload is valid', function (done) {
+
+            var payload = 'Here is my payload';
+            var authHeader = Hawk.client.header('http://0.0.0.0:8080/multiplePayload', 'POST', { credentials: credentials.john.cred, payload: payload });
+            var request = { method: 'POST', url: '/multiplePayload', headers: { authorization: authHeader.field, host: '0.0.0.0:8080' }, payload: payload };
+
+            server.inject(request, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                expect(res.result).to.equal('Success');
+                done();
+            });
+        });
+    });
+
+    describe('Cookie', function (done) {
+
+        var config = {
+            scheme: 'cookie',
+            password: 'password',
+            ttl: 60 * 1000,
+            cookie: 'special',
+            clearInvalid: true,
+            validateFunc: function (session, callback) {
+
+                var override = Hapi.utils.clone(session);
+                override.something = 'new';
+
+                return callback(session.user === 'valid' ? null : new Error('bad user'), override);
+            }
+        };
+
+        var server = new Hapi.Server({ auth: config });
+
+        server.route({
+            method: 'GET', path: '/login/{user}',
+            config: {
+                auth: { mode: 'try' },
+                handler: function () {
+
+                    this.auth.session.set({ user: this.params.user });
+                    return this.reply(this.params.user);
+                }
+            }
+        });
+
+        server.route({
+            method: 'GET', path: '/resource', handler: function () {
+
+                expect(this.auth.credentials.something).to.equal('new');
+                return this.reply('resource');
+            },
+            config: { auth: 'default' }
+        });
+
+        server.route({
+            method: 'GET', path: '/logout', handler: function () {
+
+                this.auth.session.clear();
+                return this.reply('logged-out');
+            }, config: { auth: 'default' }
+        });
+
+        it('authenticates a request', function (done) {
+
+            server.inject({ method: 'GET', url: '/login/valid' }, function (res) {
+
+                expect(res.result).to.equal('valid');
+                var header = res.headers['set-cookie'];
+                expect(header.length).to.equal(1);
+                expect(header[0]).to.contain('Max-Age=60');
+                var cookie = header[0].match(/(?:[^\x00-\x20\(\)<>@\,;\:\\"\/\[\]\?\=\{\}\x7F]+)\s*=\s*(?:([^\x00-\x20\"\,\;\\\x7F]*))/);
+
+                server.inject({ method: 'GET', url: '/resource', headers: { cookie: 'special=' + cookie[1] } }, function (res) {
+
+                    expect(res.statusCode).to.equal(200);
+                    expect(res.result).to.equal('resource');
+                    done();
+                });
+            });
+        });
+
+        it('ends a session', function (done) {
+
+            server.inject({ method: 'GET', url: '/login/valid' }, function (res) {
+
+                expect(res.result).to.equal('valid');
+                var header = res.headers['set-cookie'];
+                expect(header.length).to.equal(1);
+                expect(header[0]).to.contain('Max-Age=60');
+                var cookie = header[0].match(/(?:[^\x00-\x20\(\)<>@\,;\:\\"\/\[\]\?\=\{\}\x7F]+)\s*=\s*(?:([^\x00-\x20\"\,\;\\\x7F]*))/);
+
+                server.inject({ method: 'GET', url: '/logout', headers: { cookie: 'special=' + cookie[1] } }, function (res) {
+
+                    expect(res.statusCode).to.equal(200);
+                    expect(res.result).to.equal('logged-out');
+                    expect(res.headers['set-cookie'][0]).to.equal('special=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Path=/');
+                    done();
+                });
+            });
+        });
+
+        it('fails a request with invalid session', function (done) {
+
+            server.inject({ method: 'GET', url: '/login/invalid' }, function (res) {
+
+                expect(res.result).to.equal('invalid');
+                var header = res.headers['set-cookie'];
+                expect(header.length).to.equal(1);
+                expect(header[0]).to.contain('Max-Age=60');
+                var cookie = header[0].match(/(?:[^\x00-\x20\(\)<>@\,;\:\\"\/\[\]\?\=\{\}\x7F]+)\s*=\s*(?:([^\x00-\x20\"\,\;\\\x7F]*))/);
+
+                server.inject({ method: 'GET', url: '/resource', headers: { cookie: 'special=' + cookie[1] } }, function (res) {
+
+                    expect(res.headers['set-cookie'][0]).to.equal('special=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Secure; Path=/');
+                    expect(res.statusCode).to.equal(401);
+                    done();
+                });
+            });
+        });
+
+        describe('redirection', function (done) {
+
+            it('sends to login page (uri without query)', function (done) {
+
+                var config = {
+                    scheme: 'cookie',
+                    password: 'password',
+                    ttl: 60 * 1000,
+                    redirectTo: 'http://example.com/login',
+                    appendNext: true,
+                    validateFunc: function (session, callback) {
+
+                        return callback();
+                    }
+                };
+
+                var server = new Hapi.Server({ auth: config });
+
+                server.route({
+                    method: 'GET', path: '/', handler: function () {
+
+                        return this.reply('never');
+                    }, config: { auth: 'default' }
+                });
+
+                server.inject({ method: 'GET', url: '/' }, function (res) {
+
+                    expect(res.result).to.equal('You are being redirected...');
+                    expect(res.statusCode).to.equal(302);
+                    expect(res.headers.location).to.equal('http://example.com/login?next=%2F');
+                    done();
+                });
+            });
+
+            it('sends to login page (uri with query)', function (done) {
+
+                var config = {
+                    scheme: 'cookie',
+                    password: 'password',
+                    ttl: 60 * 1000,
+                    redirectTo: 'http://example.com/login?mode=1',
+                    appendNext: true,
+                    validateFunc: function (session, callback) {
+
+                        return callback();
+                    }
+                };
+
+                var server = new Hapi.Server({ auth: config });
+
+                server.route({
+                    method: 'GET', path: '/', handler: function () {
+
+                        return this.reply('never');
+                    }, config: { auth: 'default' }
+                });
+
+                server.inject({ method: 'GET', url: '/' }, function (res) {
+
+                    expect(res.result).to.equal('You are being redirected...');
+                    expect(res.statusCode).to.equal(302);
+                    expect(res.headers.location).to.equal('http://example.com/login?mode=1&next=%2F');
+                    done();
+                });
+            });
+
+            it('sends to login page and doesn\'t append the next query when appendNext is false', function (done) {
+
+                var config = {
+                    scheme: 'cookie',
+                    password: 'password',
+                    ttl: 60 * 1000,
+                    redirectTo: 'http://example.com/login?mode=1',
+                    appendNext: false,
+                    validateFunc: function (session, callback) {
+
+                        return callback();
+                    }
+                };
+
+                var server = new Hapi.Server({ auth: config });
+
+                server.route({
+                    method: 'GET', path: '/', handler: function () {
+
+                        return this.reply('never');
+                    }, config: { auth: 'default' }
+                });
+
+                server.inject({ method: 'GET', url: '/' }, function (res) {
+
+                    expect(res.result).to.equal('You are being redirected...');
+                    expect(res.statusCode).to.equal(302);
+                    expect(res.headers.location).to.equal('http://example.com/login?mode=1');
+                    done();
+                });
+            });
+
+            it('does not redirect on try', function (done) {
+
+                var config = {
+                    scheme: 'cookie',
+                    password: 'password',
+                    ttl: 60 * 1000,
+                    redirectTo: 'http://example.com/login',
+                    appendNext: true,
+                    validateFunc: function (session, callback) {
+
+                        return callback();
+                    }
+                };
+
+                var server = new Hapi.Server({ auth: config });
+
+                server.route({
+                    method: 'GET', path: '/', config: { auth: { mode: 'try' } }, handler: function () {
+
+                        return this.reply('try');
+                    }
+                });
+
+                server.inject({ method: 'GET', url: '/' }, function (res) {
+
+                    expect(res.result).to.equal('try');
+                    expect(res.statusCode).to.equal(200);
+                    done();
+                });
             });
         });
     });

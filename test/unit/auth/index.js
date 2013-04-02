@@ -1,9 +1,9 @@
 // Load modules
 
-var Chai = require('chai');
+var Lab = require('lab');
 var Oz = require('oz');
-var Hapi = require('../../helpers');
-var Auth = process.env.TEST_COV ? require('../../../lib-cov/auth') : require('../../../lib/auth');
+var Hapi = require('../../..');
+var Auth = require('../../../lib/auth');
 
 
 // Declare internals
@@ -13,7 +13,11 @@ var internals = {};
 
 // Test shortcuts
 
-var expect = Chai.expect;
+var expect = Lab.expect;
+var before = Lab.before;
+var after = Lab.after;
+var describe = Lab.experiment;
+var it = Lab.test;
 
 
 describe('Auth', function () {
@@ -27,7 +31,7 @@ describe('Auth', function () {
                 var auth = Auth();
             };
 
-            expect(fn).to.throw(Error);
+            expect(fn).to.throw('Auth must be instantiated using new');
             done();
         });
 
@@ -35,10 +39,11 @@ describe('Auth', function () {
 
             var fn = function () {
 
-                var auth = new Auth(null);
+                var auth = new Auth();
+                auth.addBatch(null);
             };
 
-            expect(fn).to.throw(Error, 'Invalid options');
+            expect(fn).to.throw(Error, 'Invalid auth options');
             done();
         });
 
@@ -46,10 +51,11 @@ describe('Auth', function () {
 
             var fn = function () {
 
-                var auth = new Auth(null, { scheme: null });
+                var auth = new Auth();
+                auth.addBatch({ scheme: null });
             };
 
-            expect(fn).to.throw(Error);
+            expect(fn).to.throw('Cannot read property \'scheme\' of null');
             done();
         });
 
@@ -62,7 +68,8 @@ describe('Auth', function () {
                     route: function () { }
                 };
 
-                var auth = new Auth(server, {
+                var auth = new Auth(server);
+                auth.addBatch({
                     scheme: 'oz',
                     encryptionPassword: 'test',
                     loadAppFunc: function () { },
@@ -74,29 +81,15 @@ describe('Auth', function () {
             done();
         });
 
-        it('throws an error if no strategies are defined', function (done) {
-
-            var request = {
-                _timestamp: Date.now(),
-                _route: {
-                    config: {
-                        auth: {}
-                    }
-                },
-                log: function () { }
-            };
-
-            var server = {
-                settings: {},
-                route: function () { }
-            };
+        it('doesn\'t throws an error if no strategies are defined', function (done) {
 
             var a = function () {
 
-                var auth = new Auth(server, {});
+                var auth = new Auth();
+                auth.addBatch({});
             };
 
-            expect(a).to.throw(Error);
+            expect(a).to.not.throw;
             done();
         });
 
@@ -116,7 +109,8 @@ describe('Auth', function () {
 
             var a = function () {
 
-                var auth = new Auth(server, scheme);
+                var auth = new Auth(server);
+                auth.addBatch(scheme);
             };
 
             expect(a).to.not.throw(Error);
@@ -127,15 +121,14 @@ describe('Auth', function () {
 
             var request = {
                 _timestamp: Date.now(),
-                _route: {
-                    config: {
-                        auth: {
-                            mode: 'required',
-                            strategies: ['test']
-                        }
+                route: {
+                    auth: {
+                        mode: 'required',
+                        strategies: ['test']
                     }
                 },
-                log: function () { },
+                auth: {},
+                _log: function () { },
                 raw: {
                     res: {
                         setHeader: function () { }
@@ -143,13 +136,12 @@ describe('Auth', function () {
                     req: {
                         headers: {
                             host: 'localhost',
-                            authorization: 'basic d2FsbWFydDp3YWxtYXJ0'
+                            authorization: 'basic ' + (new Buffer('steve:password').toString('base64'))
                         },
                         url: 'http://localhost/test'
                     }
                 }
             };
-
 
             var server = {
                 settings: {},
@@ -161,14 +153,15 @@ describe('Auth', function () {
                     scheme: 'basic',
                     loadUserFunc: function (username, callback) {
 
-                        return callback(null, { id: 'walmart', password: 'walmart' });
+                        return callback(null, { user: 'steve' }, 'password');
                     }
                 }
             };
 
             var a = function () {
 
-                var auth = new Auth(server, scheme);
+                var auth = new Auth(server);
+                auth.addBatch(scheme);
                 auth.authenticate(request, function (err) {
 
                     expect(err).to.not.exist;
@@ -194,7 +187,7 @@ describe('Auth', function () {
                         scheme: 'basic',
                         loadUserFunc: function (username, callback) {
 
-                            return callback(null, { id: 'walmart', password: 'walmart' });
+                            return callback(null, { id: 'steve', password: 'password' });
                         }
                     }
                 }
@@ -217,7 +210,7 @@ describe('Auth', function () {
 
         var test = function (scheme) {
 
-            it('doesn\'t throw an error when a session exists and entity is any (' + scheme.scheme + ')', function (done) {
+            it('doesn\'t throw an error when credentials exist and entity is any (' + scheme.scheme + ')', function (done) {
 
                 var options = {
                     auth: scheme
@@ -226,28 +219,28 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {},
+                    auth: {
+                        credentials: {}
+                    },
                     _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'any',
-                                strategies: [scheme.scheme]
-                            }
+                    route: {
+                        auth: {
+                            entity: 'any',
+                            strategies: ['default']
                         }
                     },
-                    log: function () { },
+                    _log: function () { },
                     server: server
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.not.exist;
                     done();
                 });
             });
 
-            it('doesn\'t throw an error when a session exists and entity defaults to any (' + scheme.scheme + ')', function (done) {
+            it('doesn\'t throw an error when credentials exist and entity defaults to any (' + scheme.scheme + ')', function (done) {
 
                 var options = {
                     auth: scheme
@@ -256,28 +249,27 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {
+                    auth: {
+                        credentials: {}
                     },
                     _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                strategies: [scheme.scheme]
-                            }
+                    route: {
+                        auth: {
+                            strategies: ['default']
                         }
                     },
-                    log: function () { },
+                    _log: function () { },
                     server: server
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.not.exist;
                     done();
                 });
             });
 
-            it('doesn\'t throw an error when a session exists with a user and user entity specified (' + scheme.scheme + ')', function (done) {
+            it('doesn\'t throw an error when credentials exist with a user and user entity specified (' + scheme.scheme + ')', function (done) {
 
                 var options = {
                     auth: scheme
@@ -286,30 +278,30 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {
-                        user: 'test'
-                    },
-                    _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'user',
-                                strategies: [scheme.scheme]
-                            }
+                    auth: {
+                        credentials: {
+                            user: 'test'
                         }
                     },
-                    log: function () { },
+                    _timestamp: Date.now(),
+                    route: {
+                        auth: {
+                            entity: 'user',
+                            strategies: ['default']
+                        }
+                    },
+                    _log: function () { },
                     server: server
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.not.exist;
                     done();
                 });
             });
 
-            it('throws an error when a session exists without a user and user entity is specified (' + scheme.scheme + ')', function (done) {
+            it('throws an error when credentials exist without a user and user entity is specified (' + scheme.scheme + ')', function (done) {
 
                 var options = {
                     auth: scheme
@@ -318,21 +310,21 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {},
+                    auth: {
+                        credentials: {}
+                    },
                     _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'user',
-                                strategies: [scheme.scheme]
-                            }
+                    route: {
+                        auth: {
+                            entity: 'user',
+                            strategies: ['default']
                         }
                     },
-                    log: function () { },
+                    _log: function () { },
                     server: server
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.exist;
                     expect(err).to.be.instanceOf(Error);
@@ -340,7 +332,7 @@ describe('Auth', function () {
                 });
             });
 
-            it('throws an error when a session exists without a app and app entity is specified (' + scheme.scheme + ')', function (done) {
+            it('throws an error when credentials exist without a app and app entity is specified (' + scheme.scheme + ')', function (done) {
 
                 var options = {
                     auth: scheme
@@ -349,23 +341,23 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {
-                        user: 'test'
-                    },
-                    _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'app',
-                                strategies: [scheme.scheme]
-                            }
+                    auth: {
+                        credentials: {
+                            user: 'test'
                         }
                     },
-                    log: function () { },
+                    _timestamp: Date.now(),
+                    route: {
+                        auth: {
+                            entity: 'app',
+                            strategies: ['default']
+                        }
+                    },
+                    _log: function () { },
                     server: server
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.exist;
                     expect(err).to.be.instanceOf(Error);
@@ -373,7 +365,7 @@ describe('Auth', function () {
                 });
             });
 
-            it('doesn\'t throw an error when a session exists with a app and app entity is specified (' + scheme.scheme + ')', function (done) {
+            it('doesn\'t throw an error when credentials exist with a app and app entity is specified (' + scheme.scheme + ')', function (done) {
 
                 var options = {
                     auth: scheme
@@ -382,23 +374,23 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {
-                        app: 'test'
-                    },
-                    _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'app',
-                                strategies: [scheme.scheme]
-                            }
+                    auth: {
+                        credentials: {
+                            app: 'test'
                         }
                     },
-                    log: function () { },
+                    _timestamp: Date.now(),
+                    route: {
+                        auth: {
+                            entity: 'app',
+                            strategies: ['default']
+                        }
+                    },
+                    _log: function () { },
                     server: server
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.not.exist;
                     done();
@@ -414,24 +406,24 @@ describe('Auth', function () {
                 var server = new Hapi.Server('localhost', 0, options);
 
                 var request = {
-                    session: {
-                        user: 'test'
-                    },
-                    _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'wrongEntity',
-                                strategies: [scheme.scheme]
-                            }
+                    auth: {
+                        credentials: {
+                            user: 'test'
                         }
                     },
-                    log: function () { },
+                    _timestamp: Date.now(),
+                    route: {
+                        auth: {
+                            entity: 'wrongEntity',
+                            strategies: ['default']
+                        }
+                    },
+                    _log: function () { },
                     server: server,
                     host: 'localhost'
                 };
 
-                server.auth.authenticate(request, function (err) {
+                server._auth.authenticate(request, function (err) {
 
                     expect(err).to.exist;
                     expect(err).to.be.instanceOf(Error);
@@ -439,7 +431,7 @@ describe('Auth', function () {
                 });
             });
 
-            it('throws an error when missing session and bad request (' + scheme.scheme + ')', function (done) {
+            it('throws an error when missing credentials and bad request (' + scheme.scheme + ')', function (done) {
 
                 var server = {
                     settings: {},
@@ -448,15 +440,17 @@ describe('Auth', function () {
 
                 var request = {
                     _timestamp: Date.now(),
-                    _route: {
-                        config: {
-                            auth: {
-                                entity: 'user',
-                                strategies: ['default']
-                            }
+                    route: {
+                        auth: {
+                            mode: 'required',
+                            entity: 'user',
+                            strategies: ['default']
                         }
                     },
-                    log: function () { },
+                    auth: {
+                        credentials: {}
+                    },
+                    _log: function () { },
                     raw: {
                         res: {
                             setHeader: function () { }
@@ -471,7 +465,8 @@ describe('Auth', function () {
                     server: server
                 };
 
-                var auth = new Auth(server, scheme);
+                var auth = new Auth(server);
+                auth.addBatch(scheme);
 
                 auth.authenticate(request, function (err) {
 
@@ -507,51 +502,26 @@ describe('Auth', function () {
 
         it('returns error on bad ext scheme callback', function (done) {
 
-            var server = {
-                settings: {}
-            };
+            var server = new Hapi.Server({
+                auth: {
+                    implementation: {
+                        authenticate: function (request, callback) {
 
-            var request = {
-                _timestamp: Date.now(),
-                _route: {
-                    config: {
-                        auth: {
-                            strategies: ['default']
+                            return callback(null, null, false);
                         }
                     }
-                },
-                log: function () { },
-                raw: {
-                    res: {
-                        setHeader: function () { }
-                    },
-                    req: {
-                        headers: {
-                            host: 'localhost'
-                        },
-                        url: 'http://localhost/test'
-                    }
-                },
-                server: server
-            };
-
-            var scheme = {
-                scheme: 'ext:test',
-                implementation: {
-                    authenticate: function (request, callback) {
-
-                        return callback(null, null, false);
-                    }
                 }
+            });
+
+            var handler = function () {
+
+                this.reply('ok');
             };
 
-            var auth = new Auth(server, scheme);
+            server.route({ method: 'GET', path: '/', handler: handler, config: { auth: 'default' } });
+            server.inject({ url: '/', method: 'GET' }, function (res) {
 
-            auth.authenticate(request, function (err) {
-
-                expect(err).to.exist;
-                expect(err).to.be.instanceOf(Error);
-                expect(err.message).to.equal('Authentication response missing both error and session');
+                expect(res.statusCode).to.equal(500);
                 done();
             });
         });

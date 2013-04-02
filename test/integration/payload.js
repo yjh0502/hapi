@@ -1,12 +1,13 @@
 // Load modules
 
-var Chai = require('chai');
+var Lab = require('lab');
 var Request = require('request');
 var Fs = require('fs');
 var Http = require('http');
 var Path = require('path');
 var Stream = require('stream');
-var Hapi = require('../helpers');
+var Zlib = require('zlib');
+var Hapi = require('../..');
 
 
 // Declare internals
@@ -16,7 +17,11 @@ var internals = {};
 
 // Test shortcuts
 
-var expect = Chai.expect;
+var expect = Lab.expect;
+var before = Lab.before;
+var after = Lab.after;
+var describe = Lab.experiment;
+var it = Lab.test;
 
 
 describe('Payload', function () {
@@ -278,13 +283,17 @@ describe('Payload', function () {
                 done();
             });
 
+            req.on('error', function () {
+
+            });
+
             s.pipe(req);
 
             setTimeout(function () {
 
                 req.abort();
                 clearInterval(iv);
-            }, 15);
+            }, 25);
         });
     });
 
@@ -378,6 +387,50 @@ describe('Payload', function () {
             req.end('{ "key": "value" }');
         });
 
+        it('returns an error on unsupported mime type', function (done) {
+
+            var options = {
+                hostname: '127.0.0.1',
+                port: server.settings.port,
+                path: '/',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/unknown',
+                    'Content-Length': '18'
+                }
+            };
+
+            var req = Http.request(options, function (res) {
+
+                expect(res.statusCode).to.equal(400);
+                done();
+            });
+
+            req.end('{ "key": "value" }');
+        });
+
+        it('returns 200 on text mime type', function (done) {
+
+            var options = {
+                hostname: '127.0.0.1',
+                port: server.settings.port,
+                path: '/',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'text/plain',
+                    'Content-Length': '18'
+                }
+            };
+
+            var req = Http.request(options, function (res) {
+
+                expect(res.statusCode).to.equal(200);
+                done();
+            });
+
+            req.end('{ "key": "value" }');
+        });
+
         it('returns a 400 status code when the request payload is streaming data with content-length being too small', function (done) {
 
             var s = new Stream();
@@ -448,6 +501,28 @@ describe('Payload', function () {
                 expect(res.result).to.exist;
                 expect(res.result.code).to.equal(400);
                 done();
+            });
+        });
+
+        it('doesn\'t return an error when the payload has the correct gzip header and gzipped payload', function (done) {
+
+            var multipartPayload = '{"hi":"hello"}';
+
+            Zlib.gzip(multipartPayload, function (err, result) {
+
+                var handler = function (request) {
+
+                   request.reply('Success');
+                };
+
+                var server = new Hapi.Server();
+                server.route({ method: 'POST', path: '/', config: { handler: handler } });
+
+                server.inject({ method: 'POST', url: '/', payload: result, headers: { 'content-encoding': 'gzip' } }, function (res) {
+
+                    expect(res.statusCode).to.equal(200);
+                    done();
+                });
             });
         });
     });

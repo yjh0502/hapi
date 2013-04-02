@@ -24,9 +24,13 @@ internals.hashPassword = function (password) {
 
 internals.users = {
     john: {
-        id: 'john',
-        password: internals.hashPassword('john')
+        user: 'john'
     }
+};
+
+
+internals.passwords = {
+    john: 'john'
 };
 
 
@@ -41,7 +45,7 @@ internals.credentials = {
 
 internals.loadUser = function (username, callback) {
 
-    callback(null, internals.users[username]);
+    callback(null, internals.users[username], internals.hashPassword(internals.passwords[username]));
 };
 
 
@@ -54,7 +58,7 @@ internals.getCredentials = function (id, callback) {
 internals.hawkHeader = function (id, path, server) {
 
     if (internals.credentials[id]) {
-        return Hawk.getAuthorizationHeader(internals.credentials[id], 'GET', path, server.settings.host, server.settings.port);
+        return Hawk.getAuthorizationHeader('http://' + server.settings.host + ':' + server.settings.port + path, 'GET', { credentials: internals.credentials[id] });
     }
     else {
         return '';
@@ -71,21 +75,19 @@ internals.main = function () {
 
     var config = {
         auth: {
-            strategies: {
-                'default': {
-                    scheme: 'basic',
-                    loadUserFunc: internals.loadUser,
-                    hashPasswordFunc: internals.hashPassword
-                },
-                'hawk': {
-                    scheme: 'hawk',
-                    getCredentialsFunc: internals.getCredentials
-                },
-                'basic': {
-                    scheme: 'basic',
-                    loadUserFunc: internals.loadUser,
-                    hashPasswordFunc: internals.hashPassword
-                }
+            'default': {
+                scheme: 'basic',
+                loadUserFunc: internals.loadUser,
+                hashPasswordFunc: internals.hashPassword
+            },
+            'hawk': {
+                scheme: 'hawk',
+                getCredentialsFunc: internals.getCredentials
+            },
+            'basic': {
+                scheme: 'basic',
+                loadUserFunc: internals.loadUser,
+                hashPasswordFunc: internals.hashPassword
             }
         }
     };

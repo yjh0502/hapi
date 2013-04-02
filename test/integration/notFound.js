@@ -1,7 +1,7 @@
 // Load modules
 
-var Chai = require('chai');
-var Hapi = require('../helpers');
+var Lab = require('lab');
+var Hapi = require('../..');
 
 
 // Declare internals
@@ -11,7 +11,11 @@ var internals = {};
 
 // Test shortcuts
 
-var expect = Chai.expect;
+var expect = Lab.expect;
+var before = Lab.before;
+var after = Lab.after;
+var describe = Lab.experiment;
+var it = Lab.test;
 
 
 describe('NotFound', function () {
@@ -61,7 +65,7 @@ describe('NotFound', function () {
         server.route({ method: 'GET', path: '/exists/{p*}', handler: function (request) { request.reply('OK'); } });
         server.route({ method: '*', path: '/{p*}', handler: function (request) {
 
-            request.reply(Hapi.Error.notFound('These these aren\'t the pages you\'re looking for.'));
+            request.reply(Hapi.error.notFound('These these are not the pages you are looking for.'));
         }});
 
         it('returns custom response when requesting a route that doesn\'t exist', function (done) {
@@ -69,7 +73,7 @@ describe('NotFound', function () {
             server.inject({ method: 'GET', url: '/page' }, function (res) {
 
                 expect(res.statusCode).to.equal(404);
-                expect(res.result.message).to.equal('These these aren\'t the pages you\'re looking for.');
+                expect(res.result.message).to.equal('These these are not the pages you are looking for.');
                 done();
             });
         });
