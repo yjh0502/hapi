@@ -31,7 +31,7 @@
   "dependencies": {
     "hoek": "0.7.x",
     "boom": "0.3.x",
-    "joi": "https://github.com/yjh0502/joi/tarball/master",
+    "joi": "0.2.x",
     "hawk": "0.11.x",
     "shot": "0.1.x",
     "oz": "0.1.x",
